@@ -112,7 +112,7 @@
   .sig{font-family:'Pinyon Script',cursive;color:var(--sig);font-size:40px;line-height:1.1;border-bottom:1px solid #cfe0ea;padding-bottom:4px;margin-top:8px;white-space:nowrap}
 
   /* ---------- Export mode ---------- */
-  .exporting{width:794px!important;max-width:794px!important;border-radius:0!important;box-shadow:none!important}
+  .exporting{max-width:none!important;border-radius:0!important;box-shadow:none!important}
   .exporting .no-print{display:none!important}
   .exporting [contenteditable]:hover,.exporting [contenteditable]:focus{background:transparent;box-shadow:none}
   .exporting input[type=number]{border-color:transparent!important;background:transparent!important}
@@ -134,6 +134,22 @@
   .lockbox .err{min-height:20px;margin-top:12px;font-size:12.5px;color:#fda4af}
   .lockbox.shake{animation:shake .35s}
   @keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+
+
+  /* ---------- Import modal ---------- */
+  #imp{display:none;position:fixed;inset:0;z-index:40;background:rgba(5,10,20,.72);align-items:center;justify-content:center;padding:16px}
+  #imp.open{display:flex}
+  .impbox{background:#fff;border-radius:18px;width:100%;max-width:660px;padding:22px;box-shadow:0 30px 80px rgba(0,0,0,.4)}
+  .impbox h3{font-size:17px;font-weight:800}
+  .impbox p{font-size:12.5px;color:#6b7686;margin:6px 0 12px;line-height:1.6}
+  .impbox textarea{width:100%;height:230px;border:1px solid #d3dce8;border-radius:12px;padding:12px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;resize:vertical;outline:none}
+  .impbox textarea:focus{border-color:var(--sky)}
+  .impopts{display:flex;gap:18px;margin:12px 0;font-size:13px;color:#334155;flex-wrap:wrap}
+  .impopts label{display:flex;gap:6px;align-items:center;cursor:pointer}
+  .impact{display:flex;justify-content:flex-end;gap:8px}
+  .impact button{border:0;border-radius:10px;padding:10px 16px;font:700 13px 'Inter',sans-serif;cursor:pointer}
+  .impact .ok{background:var(--sky);color:#04121f}
+  .impact .no{background:#eef2f7;color:#475569}
 
   /* ---------- Toast ---------- */
   #toast{position:fixed;bottom:20px;right:20px;background:#0a1428;color:#9fe3c0;border:1px solid #1c3b33;border-radius:12px;padding:10px 16px;font:600 12px 'Inter',sans-serif;opacity:0;transform:translateY(10px);transition:.25s;pointer-events:none;z-index:9}
@@ -175,6 +191,7 @@
   </div>
   <div class="group">
     <button class="tb" onclick="addRow()">+ Ajouter ligne</button>
+    <button class="tb" onclick="openImport()">⇪ Importer lignes</button>
     <button class="tb" onclick="lockNow()">🔒 Verrouiller</button>
     <button class="tb danger" onclick="resetAll()">Réinitialiser</button>
     <button class="tb primary" onclick="downloadPDF()">Exporter PDF</button>
@@ -285,6 +302,25 @@
         <div class="label">Signature</div>
         <div class="sig" contenteditable="true" oninput="save()" style="outline:none">Digital Architect</div>
       </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ IMPORT MODAL ============ -->
+<div id="imp" onclick="if(event.target===this)closeImport()">
+  <div class="impbox">
+    <h3>Importer des lignes</h3>
+    <p>Collez ici un tableau copié (CSV, Excel, Google Sheets ou texte). Le logiciel détecte tout seul la désignation, la description, la quantité et le prix. Un prix comme « À définir » reste « À définir ».</p>
+    <textarea id="imp-text" placeholder='DÉSIGNATION,QTÉ,PRIX UNIT. (MAD),TOTAL HT (MAD)
+"Domain Name (.ma / .com)Achat et gestion du nom de domaine pour 1 an.",1,150.00,150.00'></textarea>
+    <div class="impopts">
+      <label><input type="radio" name="impmode" value="replace" checked> Remplacer les lignes actuelles</label>
+      <label><input type="radio" name="impmode" value="append"> Ajouter à la suite</label>
+    </div>
+    <div class="impact">
+      <button class="no" onclick="closeImport()">Annuler</button>
+      <button class="ok" onclick="runImport()">Générer les lignes</button>
     </div>
   </div>
 </div>
@@ -436,25 +472,119 @@
     clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200);
   }
 
-  /* -------- Export PDF (1 page A4) -------- */
+  /* -------- Export PDF (toujours 1 seule page A4) -------- */
   async function downloadPDF(){
     toast('Génération du PDF...');
     try{ await document.fonts.ready }catch(e){}
+    closeImport();
     inv.classList.add('exporting');
+    const RATIO=297/210;
+    let W=794; inv.style.width=W+'px';
+    /* si le contenu est trop haut pour 1 page A4, on élargit la zone de rendu
+       jusqu'à ce que tout rentre (le PDF réduit alors légèrement l'échelle) */
+    while(inv.offsetHeight/W > RATIO-0.02 && W<2000){ W+=20; inv.style.width=W+'px'; }
     const num=(inv.querySelector('.meta b')||{}).textContent||'Facture';
     const opt={
       margin:0,
       filename:'Facture_'+num.trim()+'.pdf',
       image:{type:'jpeg',quality:1},
-      html2canvas:{scale:3,backgroundColor:'#ffffff',useCORS:true,scrollX:0,scrollY:0,windowWidth:794},
+      html2canvas:{scale:Math.min(3,5000/W),backgroundColor:'#ffffff',useCORS:true,scrollX:0,scrollY:0,windowWidth:W},
       jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
       pagebreak:{mode:['avoid-all']}
     };
-    html2pdf().set(opt).from(inv).save().then(()=>{
-      inv.classList.remove('exporting'); toast('PDF exporté ✔');
-    }).catch(()=>{ inv.classList.remove('exporting'); toast('Erreur export PDF'); });
+    const done=()=>{inv.classList.remove('exporting');inv.style.width=''};
+    html2pdf().set(opt).from(inv).save().then(()=>{done();toast('PDF exporté ✔ (1 page)')}).catch(()=>{done();toast('Erreur export PDF')});
   }
 
+  /* -------- Import de lignes (copier / coller) -------- */
+  function esc(x){return String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+  function csvRecords(text,delim){
+    const out=[];let row=[],cur='',q=false;
+    for(let i=0;i<text.length;i++){
+      const c=text[i];
+      if(q){
+        if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++} else q=false }
+        else cur+=c;
+      }else{
+        if(c==='"') q=true;
+        else if(c===delim){row.push(cur);cur=''}
+        else if(c==='\n'){row.push(cur);out.push(row);row=[];cur=''}
+        else cur+=c;
+      }
+    }
+    row.push(cur); out.push(row);
+    return out.map(r=>r.map(x=>x.trim())).filter(r=>r.some(x=>x!==''));
+  }
+  function detectDelim(text){
+    const cnt={'\t':0,';':0,',':0};let q=false;
+    for(const c of text){
+      if(c==='"') q=!q;
+      else if(!q){ if(c==='\n')break; if(c in cnt)cnt[c]++ }
+    }
+    if(cnt['\t']>0) return '\t';
+    if(cnt[';']>=2 && cnt[';']>=cnt[',']) return ';';
+    return ',';
+  }
+  function numFrom(v){
+    v=String(v==null?'':v).replace(/[\s\u00a0]/g,'').replace(/(MAD|DH|EUR|USD|€|\$)/gi,'');
+    if(v===''||/[a-zA-Zà-ÿ]/.test(v)) return null;
+    if(v.includes(',')&&!v.includes('.')) v=v.replace(',','.'); else v=v.replace(/,/g,'');
+    const n=parseFloat(v); return isNaN(n)?null:n;
+  }
+  /* sépare "TitreDescription" (copié sans saut de ligne) en [titre, description] */
+  function splitTitle(str){
+    str=str.trim();
+    const lines=str.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    if(lines.length>1) return [lines[0],lines.slice(1).join(' ')];
+    const re=/(?<=[a-z0-9\)\.\]])(?=[A-Z][a-zà-ÿ])|(?<=[A-Z]{2})(?=[A-Z][a-zà-ÿ])/g;
+    let m;
+    while((m=re.exec(str))){
+      if(m.index>=3) return [str.slice(0,m.index).trim(),str.slice(m.index).trim()];
+    }
+    const sep=str.match(/\s[-–|:]\s/);
+    if(sep && sep.index>=3) return [str.slice(0,sep.index).trim(),str.slice(sep.index+sep[0].length).trim()];
+    return [str,''];
+  }
+  function parseImport(raw){
+    const text=raw.replace(/\r/g,'').trim();
+    if(!text) return {rows:[],currency:null};
+    const recs=csvRecords(text,detectDelim(text));
+    let currency=null,rows=[];
+    recs.forEach((f,idx)=>{
+      const n=f.length; if(n<2) return;
+      let des,qty,price;
+      if(n>=4){des=f.slice(0,n-3).join(', ');qty=f[n-3];price=f[n-2]}
+      else if(n===3){des=f[0];qty=f[1];price=f[2]}
+      else {des=f[0];qty='1';price=f[1]}
+      if(idx===0 && numFrom(qty)===null && /d[eé]signation|qt[eé]|prix|total|description/i.test(f.join(' '))){
+        const h=f.join(' ');
+        if(/MAD|DH/i.test(h)) currency='DH'; else if(/EUR|€/i.test(h)) currency='€'; else if(/USD|\$/.test(h)) currency='$';
+        return;
+      }
+      if(/^(sous[- ]?total|total|tva|remise|acompte|reste)/i.test(des)) return;
+      const [t,d]=splitTitle(des);
+      const q=numFrom(qty);
+      const pr=numFrom(price);
+      rows.push({title:t,desc:d||'Description...',qty:q===null?1:q,price:pr===null?'':pr});
+    });
+    return {rows,currency};
+  }
+  function openImport(){document.getElementById('imp').classList.add('open');setTimeout(()=>document.getElementById('imp-text').focus(),30)}
+  function closeImport(){document.getElementById('imp').classList.remove('open')}
+  function runImport(){
+    const {rows,currency}=parseImport(document.getElementById('imp-text').value);
+    if(!rows.length){toast('Aucune ligne reconnue');return}
+    const mode=document.querySelector('input[name=impmode]:checked').value;
+    const html=rows.map(r=>rowHTML(esc(r.title),esc(r.desc),r.qty,r.price)).join('');
+    const tb=document.getElementById('items');
+    if(mode==='replace') tb.innerHTML=html; else tb.insertAdjacentHTML('beforeend',html);
+    if(currency) setCurrency(currency,true);
+    calc(); save(); closeImport();
+    document.getElementById('imp-text').value='';
+    toast(rows.length+' ligne(s) importée(s)');
+  }
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeImport()});
 
   /* -------- Mot de passe (verrou) -------- */
   const SALT='DA-facteur-7f3k', PW_HASH='7912554c4225b813089cdd694ec86104a837aa9f29a526bd91a483c78fb48c48', SESSION_KEY='fa_unlocked_v1';
